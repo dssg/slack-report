@@ -1,0 +1,41 @@
+= slack-report
+
+Report the results of executing the specified command to Slack.
+
+
+== Use
+
+The basic interface of `slack-report` is the same as `sudo`, `time`, `watch`, _etc._:
+
+    slack-report COMMAND
+
+Any executable command, as well as its arguments, are accepted, and executed.
+
+For example:
+
+    slack-report --channel=ops --title="uptime report" time annotate ./tps-reports.sh
+
+The above would execute `time` (most likely `/usr/bin/time`), passing it the arguments `annotate ./tps-reports.sh` (such that these would be executed as well). The resulting standard output and error would be uploaded to Slack, and shared in the "ops" channel, with the title: "uptime report."
+
+For the complete interface, consult `slack-report --help`.
+
+
+== Installation
+
+`slack-report` is available from https://pypi.org/project/slack-report/[PyPI] and https://github.com/dssg/slack-report[GitHub].
+
+To install via `pip`:
+
+    pip install slack-report
+
+
+== Configuration
+
+In addition to its command flags, `slack-report` may be configured via the shell/process environment.
+
+A Slack API token is *required*. This may be provided either via command flag `--token` or environment variable `SLACK_API_TOKEN`.
+
+The API token requires permission:
+
+* to post the results file: `files:write`
+* to look up requested channels by name: `channels.read`

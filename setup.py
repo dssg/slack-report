@@ -1,10 +1,18 @@
+import pathlib
+
 from setuptools import setup
+
+
+README_PATH = pathlib.Path(__file__).parent / 'README.adoc'
+
 
 setup(
     name='slack-report',
-    version='0.0.1',
-    description="report output of subcommand to slack channel",
-    # long_description=README_PATH.read_text(),  # TODO
+    version='0.0.2',
+    description="report output of command to slack channel",
+    long_description=README_PATH.read_text(),
+    # don't worry about rendering content for now
+    long_description_content_type='text/plain',
     author="Jesse London",
     author_email='jesselondon@gmail.com',
     license='BSD 3-Clause',
