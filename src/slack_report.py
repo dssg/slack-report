@@ -1,9 +1,27 @@
 #!/usr/bin/env python3
+"""Execute a command and report its results to Slack
+
+Requires a Slack API token with permissions:
+
+* to post result file: ``files:write``
+* to look up requested channels by name: ``channels.read``
+
+As an alternative to command flag ``--token``, this token may be
+indicated via process environment variable: ``SLACK_API_TOKEN``.
+
+Slack API URLs may be overridden only via environment variables:
+
+* ``SLACK_CHANNELS_URL``
+* ``SLACK_UPLOAD_URL``
+
+"""
 import argparse
 import enum
 import os
+import sys
 
 import argcmdr
+import requests
 
 
 class StrEnum(str, enum.Enum):
@@ -67,15 +85,14 @@ class EnvDefaultAction(argparse._StoreAction):
 
 
 class Report(argcmdr.Local):
-    # TODO: docstring
-
-    # TODO: note oauth scope requirements for two requests: channels.read, etc. and files:write
+    """execute command and report exit code & outputs to Slack"""
 
     class EnvDefault(EnvDefaultEnum):
 
         api_token = 'SLACK_API_TOKEN'
         channels_url = 'SLACK_CHANNELS_URL'
         upload_url = 'SLACK_UPLOAD_URL'
+        max_width = 'SLACK_REPORT_WIDTH'
 
         # webhook can only post simple messages not file attachments
         # webhook_url = 'SLACK_WEBHOOK'
@@ -84,6 +101,13 @@ class Report(argcmdr.Local):
                     'https://slack.com/api/conversations.list')
     upload_url = (EnvDefault.upload_url or
                   'https://slack.com/api/files.upload')
+
+    @property
+    def max_width(self):
+        if self.EnvDefault.max_width.isdigit():
+            return int(self.EnvDefault.max_width)
+
+        return 80
 
     def __init__(self, parser):
         parser.add_argument(
@@ -98,16 +122,18 @@ class Report(argcmdr.Local):
             action='append',
             dest='channel_names',
             help="channel(s) with which to share results (name)",
+            metavar='NAME',
         )
         parser.add_argument(
             '-i', '--channel-id',
             action='append',
             dest='channel_ids',
             help="channel(s) with which to share results (id)",
+            metavar='ID',
         )
         parser.add_argument(
             '-t', '--title',
-            help="title for slack report summary",
+            help="title for report summary",
         )
 
         # parser.add_argument(
@@ -121,16 +147,17 @@ class Report(argcmdr.Local):
 
         parser.add_argument(
             'command',
-            help="command to execute",
+            help="command to execute & report on",
         )
         parser.add_argument(
             'arguments',
+            metavar='[args...]',
             nargs=argparse.REMAINDER,
             help=argparse.SUPPRESS,
         )
 
     def report(self, retcode, stdout, stderr):
-        channel_ids = self.args.channel_ids
+        channel_ids = self.args.channel_ids or []
 
         if self.args.channel_names:
             response = requests.get(self.channels_url, params={
@@ -150,40 +177,68 @@ class Report(argcmdr.Local):
         if self.args.arguments:
             full_command += ' ' + ' '.join(self.args.arguments)
 
-        output_type = 'stderr' if retcode else 'stdout'
-
-        comment = (f'the following command returned code `{retcode}` '
-                   f'with the attached {output_type}\n\n```{full_command}```')
+        comment = (f'the following command returned code `{retcode}`\n\n'
+                   f'```{full_command}```\n\n'
+                   f'with the attached stdout and stderr')
 
         if self.args.title:
             comment = f'*{self.args.title}*\n\n{comment}'
+
+        # match content banner widths to output
+        output_width = max(len(line) for output in (stdout, stderr)
+                           for line in output.splitlines())
+        # ...so long as that's nothing insane (beyond max)
+        output_width = min(output_width, self.max_width)
 
         response = requests.post(self.upload_url, data={
             'token': self.args.token,
             'channels': ','.join(channel_ids),
             'initial_comment': comment,
-            'title': f'execution output ({output_type})',
-            'content': stderr if retcode else stdout,
+            'title': 'command execution output',
+            'content': '\n'.join(
+                f' begin {name} '.center(output_width, '=') + '\n' +
+                f'\n{output}\n' +
+                f' end {name} '.center(output_width, '=') + '\n'
+                for (name, output) in (
+                    ('stdout', stdout),
+                    ('stderr', stderr),
+                )
+            ),
             'filetype': 'text',
         })
         data = response.json()
         return (data['ok'], data)
 
-    def prepare(self, args):
-        (retcode, stdout, stderr) = yield self.local[args.command][args.arguments]
+    def prepare(self, args, parser):
+        try:
+            (retcode, stdout, stderr) = yield self.local[args.command][args.arguments]
+        except self.local.CommandNotFound:
+            print(f'{parser.prog}: error: cannot run {args.command}: not found', file=sys.stderr)
+            raise SystemExit(127)
+
+        if stdout is None:
+            # dry run
+            return
 
         try:
             (report_ok, report_data) = self.report(retcode, stdout, stderr)
         except Exception as exc:
             if retcode:
-                print('slack reporting exception:', exc)
+                print(f'{parser.prog}: exception:', exc, file=sys.stderr)
             else:
                 raise
         else:
-            if not report_ok:
-                print('slack reporting error:', report_data)
+            if report_ok:
+                permalink = report_data.get('file', {}).get('permalink')
+                report_message = f'{parser.prog}: ok'
+                if permalink:
+                    report_message += f': {permalink}'
 
+                print(report_message, file=sys.stderr)
+            else:
                 retcode = retcode or 1
+
+                print(f'{parser.prog}: error:', report_data, file=sys.stderr)
 
         raise SystemExit(retcode)
 
