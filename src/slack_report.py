@@ -189,6 +189,8 @@ class Report(argcmdr.Local):
                            for line in output.splitlines())
         # ...so long as that's nothing insane (beyond max)
         output_width = min(output_width, self.max_width)
+        # ...(nor below the banners' minima: " begin stdout ")
+        output_width = max(output_width, 16)
 
         response = requests.post(self.upload_url, data={
             'token': self.args.token,
