@@ -8,7 +8,7 @@ README_PATH = pathlib.Path(__file__).parent / 'README.adoc'
 
 setup(
     name='slack-report',
-    version='0.0.2',
+    version='0.1.0',
     description="report output of command to slack channel",
     long_description=README_PATH.read_text(),
     # don't worry about rendering content for now
