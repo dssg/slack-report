@@ -29,7 +29,7 @@ setup(
     py_modules=['slack_report'],
     install_requires=[
         'argcmdr==0.6.0',
-        'requests==2.22.0',
+        'requests==2.31.0',
     ],
     entry_points={
         'console_scripts': [
